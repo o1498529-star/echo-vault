@@ -96,8 +96,17 @@ static int weapon=0, upgrade=0, damage_upgrade=0, speed_upgrade=0, dash_upgrade=
 static int level=0, goal=3, level_start_score=0, level_start_elapsed=0, level_start_health=5;
 static bool is_boss_stage() {return (level+1)%6==0;}
 enum Scene { TITLE, PLAY, DEAD, STAGE_CLEAR, WIN, PAUSED }; static Scene scene = TITLE;
-static bool wall(float x, float y) { int tx=int(x)/TILE, ty=int(y)/TILE; return tx<0 || ty<0 || tx>=TW || ty>=TH || world[ty][tx]=='#'; }
-static bool blocked(float x,float y,float r) { return wall(x-r,y-r)||wall(x+r,y-r)||wall(x-r,y+r)||wall(x+r,y+r); }
+static bool blocked(float x,float y,float r) {
+    if(x-r<16 || y-r<16 || x+r>W-16 || y+r>H-16) return true;
+    int minx=std::max(1,int((x-r-7)/TILE)), maxx=std::min(TW-2,int((x+r+7)/TILE));
+    int miny=std::max(1,int((y-r-7)/TILE)), maxy=std::min(TH-2,int((y+r+7)/TILE));
+    for(int ty=miny;ty<=maxy;ty++) for(int tx=minx;tx<=maxx;tx++) if(world[ty][tx]=='#') {
+        float dx=x-(tx*TILE+TILE/2),dy=y-(ty*TILE+TILE/2),radius=r+7.0f;
+        if(dx*dx+dy*dy<radius*radius) return true;
+    }
+    return false;
+}
+static bool wall(float x,float y) {return blocked(x,y,0);}
 static float length(float x,float y) { return sqrtf(x*x+y*y); }
 static void move_entity(float& x, float& y, float dx,float dy,float radius) {
     if (!blocked(x+dx,y,radius)) x+=dx;

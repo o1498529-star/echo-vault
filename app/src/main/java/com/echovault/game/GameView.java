@@ -20,10 +20,12 @@ public final class GameView extends View {
     private final Bitmap image = Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888);
     private final int[] pixels = new int[320*240];
     private final Paint paint = new Paint();
-    private final String[] labels={"UP","DOWN","LEFT","RIGHT","FIRE","SWORD","DASH","GUN","PAUSE","START","SOUND"};
-    private final float[] cx={.12f,.12f,.055f,.185f,.91f,.81f,.91f,.81f,.95f,.78f,.68f};
-    private final float[] cy={.58f,.88f,.73f,.73f,.67f,.79f,.90f,.58f,.12f,.12f,.12f};
+    private final String[] labels={"","","","","FIRE","SWORD","DASH","GUN","PAUSE","START","SOUND"};
+    private final float[] cx={0,0,0,0,.91f,.80f,.91f,.80f,.95f,.82f,.69f};
+    private final float[] cy={0,0,0,0,.63f,.76f,.88f,.53f,.12f,.12f,.12f};
     private int held=0, pending=0;
+    private int joystickPointer=-1;
+    private float stickX=0, stickY=0;
     private long previous=0;
     private double accumulator=0;
     private ToneGenerator tones;
@@ -33,7 +35,7 @@ public final class GameView extends View {
         try { tones = new ToneGenerator(AudioManager.STREAM_MUSIC, 45); } catch (RuntimeException ignored) { tones=null; }
     }
     void pauseGame() { pending |= 1<<8; invalidate(); }
-    void suspend() { held=0;pending=0;nativeSuspend();previous=0;accumulator=0; }
+    void suspend() { held=0;pending=0;joystickPointer=-1;stickX=stickY=0;nativeSuspend();previous=0;accumulator=0; }
     @Override protected void onDetachedFromWindow() { if(tones!=null) {tones.release();tones=null;} super.onDetachedFromWindow(); }
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas); long now=System.nanoTime();
@@ -52,7 +54,11 @@ public final class GameView extends View {
         canvas.drawBitmap(image,null,new RectF((getWidth()-w)/2,(getHeight()-h)/2,(getWidth()+w)/2,(getHeight()+h)/2),paint);
         float radius=Math.min(getHeight()*.071f,getWidth()*.036f);
         paint.setTextAlign(Paint.Align.CENTER);paint.setTextSize(Math.max(12,radius*.43f));paint.setFakeBoldText(true);
-        for(int i=0;i<labels.length;i++) {
+        float joyX=getWidth()*.13f,joyY=getHeight()*.72f,joyR=getHeight()*.18f;
+        paint.setColor(0x99142130);canvas.drawCircle(joyX,joyY,joyR,paint);
+        paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2);paint.setColor(0xbb93d8dd);canvas.drawCircle(joyX,joyY,joyR,paint);paint.setStyle(Paint.Style.FILL);
+        paint.setColor(joystickPointer<0?0xaa93d8dd:0xdd65dbd3);canvas.drawCircle(joyX+stickX*joyR*.65f,joyY+stickY*joyR*.65f,joyR*.37f,paint);
+        for(int i=4;i<labels.length;i++) {
             float x=cx[i]*getWidth(), y=cy[i]*getHeight();
             paint.setColor((held&(1<<i))!=0?0xbb65dbd3:0x99142130);canvas.drawCircle(x,y,radius,paint);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2);paint.setColor(0xbb93d8dd);canvas.drawCircle(x,y,radius,paint);paint.setStyle(Paint.Style.FILL);
@@ -61,11 +67,17 @@ public final class GameView extends View {
         postInvalidateOnAnimation();
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
-        int next=0, action=event.getActionMasked(); float radius=Math.min(getHeight()*.085f,getWidth()*.043f);
+        int next=0, action=event.getActionMasked(), changed=event.getActionIndex(); float radius=Math.min(getHeight()*.085f,getWidth()*.043f);
+        if((action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_POINTER_DOWN) && joystickPointer<0 && event.getX(changed)<getWidth()*.27f && event.getY(changed)>getHeight()*.38f) joystickPointer=event.getPointerId(changed);
+        if(action==MotionEvent.ACTION_CANCEL || ((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && event.getPointerId(changed)==joystickPointer)) {joystickPointer=-1;stickX=stickY=0;}
         if(action!=MotionEvent.ACTION_CANCEL) for(int p=0;p<event.getPointerCount();p++) {
-            if((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && p==event.getActionIndex()) continue;
+            if((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && p==changed) continue;
             float x=event.getX(p),y=event.getY(p);
-            for(int i=0;i<labels.length;i++) {float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight();if(dx*dx+dy*dy<=radius*radius) next|=1<<i;}
+            if(event.getPointerId(p)==joystickPointer) {
+                float joyR=getHeight()*.18f,dx=(x-getWidth()*.13f)/joyR,dy=(y-getHeight()*.72f)/joyR;
+                float mag=(float)Math.sqrt(dx*dx+dy*dy); if(mag>1) {dx/=mag;dy/=mag;} stickX=dx;stickY=dy;
+                if(dy<-.3f) next|=1; if(dy>.3f) next|=2; if(dx<-.3f) next|=4; if(dx>.3f) next|=8;
+            } else for(int i=4;i<labels.length;i++) {float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight();if(dx*dx+dy*dy<=radius*radius) next|=1<<i;}
         }
         pending |= next & ~held;held=next;return true;
     }
