@@ -80,7 +80,7 @@ static void text(int x, int y, const char* s, uint32_t c, int scale=1) {
 }
 static void centered(int y, const char* s, uint32_t c, int scale=1) { text((W - int(strlen(s))*6*scale)/2, y, s, c, scale); }
 
-constexpr int LEVELS=24;
+#include "campaign.h"
 static char world[TH][TW+1];
 static int distance_map[TH][TW];
 struct Bullet { float x,y,vx,vy; int life; bool active; };
@@ -94,9 +94,27 @@ static int dash_cooldown=0, dash_frames=0, boss_health=0, boss_cooldown=0, picku
 static bool boss_defeated=false;
 static int weapon=0, upgrade=0, damage_upgrade=0, speed_upgrade=0, dash_upgrade=0, sword_timer=0, sword_cooldown=0, boss_max_health=24;
 static int level=0, goal=3, level_start_score=0, level_start_elapsed=0, level_start_health=5;
-static bool is_boss_stage() {return (level+1)%6==0;}
-enum Scene { TITLE, PLAY, DEAD, STAGE_CLEAR, WIN, PAUSED, HELP }; static Scene scene = TITLE;
-static int pause_choice=0, help_page=0;
+static bool is_boss_stage() {return campaign[level].boss>=0;}
+enum Scene { TITLE, PLAY, DEAD, STAGE_CLEAR, WIN, PAUSED, HELP, SETTINGS }; static Scene scene = TITLE;
+static int pause_choice=0, help_page=0, settings_choice=0, difficulty=1, player_color=0, starting_weapon=0;
+static Scene settings_return=TITLE;
+struct Difficulty { const char* name; float player_speed, enemy_speed, spawn_factor; int enemy_limit; };
+static const Difficulty difficulties[]={{"EASY",1.25f,0.70f,1.50f,3},{"NORMAL",1.15f,1.00f,1.00f,5},{"HARD",1.05f,1.25f,0.78f,8},{"VERY HARD",0.98f,1.48f,0.60f,12}};
+static const char* color_names[]={"CYAN","GOLD","PINK","GREEN"};
+static const uint32_t player_colors[]={0x78cde7,0xf2c45f,0xed92bf,0x82dc9a};
+static void change_setting(int delta) {
+    if(settings_choice==0) difficulty=(difficulty+delta+4)%4;
+    else if(settings_choice==1) player_color=(player_color+delta+4)%4;
+    else if(settings_choice==2) starting_weapon=1-starting_weapon;
+    else if(settings_choice==3) muted=!muted;
+}
+static void update_settings() {
+    if(pressed[VK_UP]||pressed['W']) settings_choice=(settings_choice+4)%5;
+    if(pressed[VK_DOWN]||pressed['S']) settings_choice=(settings_choice+1)%5;
+    if(pressed[VK_LEFT]||pressed['A']) change_setting(-1);
+    if(pressed[VK_RIGHT]||pressed['D']) change_setting(1);
+    if(pressed['C']||pressed[VK_ESCAPE]||pressed['P']||(settings_choice==4 && pressed[VK_RETURN])) scene=settings_return;
+}
 static bool blocked(float x,float y,float r) {
     if(x-r<16 || y-r<16 || x+r>W-16 || y+r>H-16) return true;
     int minx=std::max(1,int((x-r-7)/TILE)), maxx=std::min(TW-2,int((x+r+7)/TILE));
@@ -130,16 +148,16 @@ static void make_world(int index) {
 }
 static void begin_level() {
     memset(bullets,0,sizeof(bullets)); memset(enemy_bullets,0,sizeof(enemy_bullets)); memset(enemies,0,sizeof(enemies)); memset(particles,0,sizeof(particles));
-    make_world(level);
+    make_world(campaign[level].seed);
     // Odd tile coordinates are always connected by the corridor grid.
     goal=std::min(5,3+level/4);
-    for(int i=0;i<5;i++) {int cell=(level*11+i*13+8)%62+1;int tx=(cell%9)*2+1,ty=(cell/9)*2+1;crystals[i]={tx*16+8,ty*16+8,i>=goal};}
+    for(int i=0;i<5;i++) {int cell=(campaign[level].seed*11+i*13+8)%62+1;int tx=(cell%9)*2+1,ty=(cell/9)*2+1;crystals[i]={tx*16+8,ty*16+8,i>=goal};}
     px=24; py=24; fx=1; fy=0; collected=0; shots=0; invulnerable=0; spawn_timer=100; shake=0;
     dash_cooldown=0; dash_frames=0; sword_timer=0; sword_cooldown=0; boss_max_health=24+(level/6)*8; boss_health=boss_max_health; boss_cooldown=100; boss_defeated=false; pickup_life=0;
     level_start_score=score; level_start_elapsed=elapsed; level_start_health=health;
 }
 static void reset_game() {
-    level=0; health=5; score=0; elapsed=0; weapon=0; upgrade=0; damage_upgrade=0; speed_upgrade=0; dash_upgrade=0; begin_level();
+    level=0; health=5; score=0; elapsed=0; weapon=starting_weapon; upgrade=0; damage_upgrade=0; speed_upgrade=0; dash_upgrade=0; begin_level();
 }
 static void retry_level() {
     score=level_start_score; elapsed=level_start_elapsed; health=level_start_health; begin_level();
@@ -161,6 +179,8 @@ static void update_distance() {
     }
 }
 static void spawn_enemy() {
+    int active=0; for(const auto& e:enemies) if(e.active) active++;
+    if(active>=difficulties[difficulty].enemy_limit) return;
     static const int positions[][2]={{17,2},{2,13},{17,13},{10,1},{1,8},{18,7}};
     for(auto& e:enemies) if(!e.active) {
         for(int n=0;n<12;n++) { auto& p=positions[rnd()%6]; float x=float(p[0]*16+8), y=float(p[1]*16+8);
@@ -210,12 +230,12 @@ static void update_game() {
     if(mag>0) { dx/=mag; dy/=mag; if(dash_frames==0) {fx=dx; fy=dy;} }
     if(pressed[VK_SHIFT] && dash_cooldown==0) { dash_frames=10; dash_cooldown=std::max(45,120-dash_upgrade*25); invulnerable=std::max(invulnerable,14); burst(px,py,color(90,200,240),8); }
     if(dash_frames>0) { move_entity(px,py,fx*3.0f,fy*3.0f,5); dash_frames--; }
-    else if(mag>0) move_entity(px,py,dx*(1.15f+speed_upgrade*0.16f),dy*(1.15f+speed_upgrade*0.16f),5);
+    else if(mag>0) move_entity(px,py,dx*(difficulties[difficulty].player_speed+speed_upgrade*0.16f),dy*(difficulties[difficulty].player_speed+speed_upgrade*0.16f),5);
     if(dash_cooldown>0) dash_cooldown--;
     if(keys[VK_SPACE]) fire();
     if(shots>0) --shots; if(invulnerable>0) --invulnerable; if(shake>0) --shake;
     if(elapsed%12==0) update_distance();
-    if(--spawn_timer<=0) { spawn_enemy(); spawn_timer=std::max(58,165-level*14-collected*6); }
+    if(--spawn_timer<=0) { spawn_enemy(); spawn_timer=int(std::max(58,165-level*14-collected*6)*difficulties[difficulty].spawn_factor); }
     for(auto& c:crystals) if(!c.collected && length(px-c.x,py-c.y)<9) { c.collected=true; collected++; score+=100; sound(1); burst(float(c.x),float(c.y),color(98,242,216),12); }
     if(level>=2 && invulnerable==0 && (elapsed%180)<75) {
         static const int hazards[][2]={{7*16+8,5*16+8},{13*16+8,9*16+8}};
@@ -247,9 +267,17 @@ static void update_game() {
     }
     if(is_boss_stage() && !boss_defeated && --boss_cooldown<=0) {
         bool enraged=boss_health<=boss_max_health/2; boss_cooldown=enraged?65:105;
-        int count=enraged?12:8;
-        for(int i=0;i<count;i++) {float a=float(i)*6.2831853f/float(count)+float(elapsed%120)*0.01f;enemy_fire(152,120,cosf(a),sinf(a),enraged?1.65f:1.35f);}
-        if(enraged) enemy_fire(152,120,px-152,py-120,2.1f);
+        int pattern=boss_data[campaign[level].boss].pattern;
+        if(pattern==1) {
+            float ex=px-152,ey=py-120;
+            for(int i=-2;i<=2;i++) {float a=i*0.19f;enemy_fire(152,120,ex*cosf(a)-ey*sinf(a),ex*sinf(a)+ey*cosf(a),enraged?2.0f:1.55f);}
+            boss_cooldown=enraged?48:70;
+        } else {
+            int count=pattern==2?(enraged?16:10):(enraged?12:8);
+            for(int i=0;i<count;i++) {float a=float(i)*6.2831853f/float(count)+float(elapsed%180)*(pattern==2?0.04f:0.01f);enemy_fire(152,120,cosf(a),sinf(a),enraged?1.65f:1.35f);}
+            if(enraged || pattern==2) enemy_fire(152,120,px-152,py-120,2.1f);
+            if(pattern==2) boss_cooldown=enraged?50:80;
+        }
     }
     for(auto& e:enemies) if(e.active) {
         float ex=px-e.x,ey=py-e.y,m=length(ex,ey);
@@ -267,7 +295,7 @@ static void update_game() {
             else { e.delay=1; targetx=bx*16+8.0f; targety=by*16+8.0f; if(length(e.x-targetx,e.y-targety)<2.0f) e.delay=0; }
         }
         float edx=targetx-e.x,edy=targety-e.y,dist=length(edx,edy);
-        if(dist>0.1f) { float speed=(0.28f+std::min(level,12)*0.035f+collected*0.012f)*(e.type==2?0.72f:e.type==3?1.65f:e.type==5?((elapsed/45)%2?1.9f:0.45f):1.0f); move_entity(e.x,e.y,edx/dist*speed,edy/dist*speed,5); }
+        if(dist>0.1f) { float speed=(0.28f+std::min(level,12)*0.035f+collected*0.012f)*(e.type==2?0.72f:e.type==3?1.65f:e.type==5?((elapsed/45)%2?1.9f:0.45f):1.0f); speed*=difficulties[difficulty].enemy_speed; move_entity(e.x,e.y,edx/dist*speed,edy/dist*speed,5); }
         if(e.hurt>0) e.hurt--;
         if(m<11 && invulnerable==0) { health--; invulnerable=80; shake=8; sound(2); burst(px,py,color(255,106,112),12); if(health<=0) {scene=DEAD;return;} }
     }
@@ -276,7 +304,7 @@ static void update_game() {
 static void draw_world() {
     static const uint32_t floors[][2]={{0x111923,0x131d28},{0x1a192b,0x211e31},{0x1c211d,0x242a22},{0x271d20,0x302326},{0x17242a,0x1d2c30},{0x271a28,0x30202e}};
     static const uint32_t walls[]={0x32424b,0x50485e,0x4c5946,0x674b49,0x3b5962,0x654454};
-    int theme=(level/4)%6;
+    int theme=campaign[level].theme;
     const uint32_t floor1=floors[theme][0],floor2=floors[theme][1],wall1=walls[theme],wall2=color(33,45,56);
     for(int y=0;y<TH;y++) for(int x=0;x<TW;x++) {
         int sx=x*16,sy=y*16;
@@ -301,10 +329,10 @@ static void draw_world() {
     if(pickup_life>0 && (pickup_life>120 || (frame_number/8)%2)) {rect(pickup_x-5,pickup_y-5,11,11,color(35,94,63));rect(pickup_x-1,pickup_y-4,3,9,color(145,255,169));rect(pickup_x-4,pickup_y-1,9,3,color(145,255,169));}
     if(is_boss_stage() && !boss_defeated) {
         int pulse=(frame_number/12)%2;
-        rect(140,109,24,23,color(80,37,61)); rect(142,107,20,20,color(170+pulse*25,68,104));
+        rect(140,109,24,23,color(80,37,61)); rect(142,107,20,20,pulse?color(235,135,135):boss_data[campaign[level].boss].color);
         rect(145,111,14,12,color(77,33,56)); rect(148,115,8,4,color(255,193,135));
         rect(137,125,7,4,color(216,112,115)); rect(160,125,7,4,color(216,112,115));
-        rect(98,18,124,12,color(10,17,25)); text(101,20,"WARDEN",color(255,182,154));
+        rect(98,18,124,12,color(10,17,25)); text(101,20,boss_data[campaign[level].boss].name,color(255,182,154));
         rect(145,21,72,5,color(78,39,48)); rect(145,21,std::max(0,boss_health)*72/boss_max_health,5,color(247,112,109));
     }
     for(auto& e:enemies) if(e.active) {
@@ -313,7 +341,7 @@ static void draw_world() {
         rect(x-4,y+4,3,3,color(144,59,69)); rect(x+1,y+4,3,3,color(144,59,69));
     }
     if(invulnerable==0 || (invulnerable/5)%2==0) {
-        int x=int(px),y=int(py); rect(x-5,y-7,10,13,color(55,120,168));rect(x-4,y-6,8,9,color(120,205,231));
+        int x=int(px),y=int(py); rect(x-5,y-7,10,13,color(55,120,168));rect(x-4,y-6,8,9,player_colors[player_color]);
         rect(x-3,y-4,6,3,color(227,245,230)); rect(x-4,y+5,3,3,color(33,72,112));rect(x+1,y+5,3,3,color(33,72,112));
         rect(x+int(fx*7)-1,y+int(fy*7)-1,3,3,color(255,221,148));
     }
@@ -332,21 +360,32 @@ static void draw() {
     if(scene==TITLE) {
         rect(23,32,274,175,color(11,20,30)); box(23,32,274,175,color(95,155,166));
         centered(48,"ECHO VAULT",color(130,235,222),2);
-        centered(74,"24 SECTORS FOUR GUARDIANS",color(202,211,198));
+        centered(74,"36 SECTORS SIX GUARDIANS",color(202,211,198));
         rect(50,90,220,1,color(64,89,95));
         centered(100,"COLLECT CORES AND REACH EXIT",color(243,220,160));
         centered(116,"TOUCH PAD TO MOVE",color(156,184,191));
         centered(128,"FIRE  SWORD  DASH",color(156,184,191));
         centered(140,"WEAPON SWITCHES YOUR GUN",color(156,184,191));
         centered(152,"PAUSE AND START ON SCREEN",color(156,184,191));
-        centered(170,"BEWARE THE FLOOR TRAPS",color(255,167,140));
+        centered(170,"C SETTINGS  M SOUND",color(255,167,140));
         if((frame_number/30)%2==0) centered(192,"TAP START TO BEGIN",color(255,226,153));
     } else if(scene==PAUSED) {
-        rect(45,65,230,110,color(10,18,27));box(45,65,230,110,color(115,160,163));
-        centered(78,"PAUSED",color(133,241,213),2);
-        centered(112,pause_choice==0?"> RESUME":"  RESUME",color(255,219,146));
-        centered(133,pause_choice==1?"> GAME GUIDE":"  GAME GUIDE",color(255,219,146));
-        centered(157,"UP DOWN ENTER  OR  H GUIDE",color(156,184,191));
+        rect(45,57,230,126,color(10,18,27));box(45,57,230,126,color(115,160,163));
+        centered(68,"PAUSED",color(133,241,213),2);
+        centered(100,pause_choice==0?"> RESUME":"  RESUME",color(255,219,146));
+        centered(120,pause_choice==1?"> GAME GUIDE":"  GAME GUIDE",color(255,219,146));
+        centered(140,pause_choice==2?"> SETTINGS":"  SETTINGS",color(255,219,146));
+        centered(162,"UP DOWN ENTER",color(156,184,191));
+    } else if(scene==SETTINGS) {
+        rect(25,39,270,162,color(10,18,27));box(25,39,270,162,color(115,160,163));
+        centered(52,"SETTINGS",color(133,241,213),2);
+        char line[60];
+        sprintf_s(line,"%s DIFFICULTY: %s",settings_choice==0?">":" ",difficulties[difficulty].name);text(43,82,line,color(255,219,146));
+        sprintf_s(line,"%s PLAYER COLOR: %s",settings_choice==1?">":" ",color_names[player_color]);text(43,99,line,color(255,219,146));
+        sprintf_s(line,"%s START GUN: %s",settings_choice==2?">":" ",starting_weapon?"SPREAD":"PULSE");text(43,116,line,color(255,219,146));
+        sprintf_s(line,"%s SOUND: %s",settings_choice==3?">":" ",muted?"OFF":"ON");text(43,133,line,color(255,219,146));
+        text(43,150,settings_choice==4?"> BACK":"  BACK",color(255,219,146));
+        centered(177,"UP DOWN SELECT  LEFT RIGHT CHANGE",color(156,184,191));
     } else if(scene==HELP) {
         rect(10,8,300,224,color(10,18,27));box(10,8,300,224,color(115,160,163));
         centered(19,help_page==0?"GAME GUIDE 1/3":help_page==1?"GAME GUIDE 2/3":"GAME GUIDE 3/3",color(133,241,213),2);
@@ -398,13 +437,14 @@ static void draw() {
 
 extern "C" JNIEXPORT void JNICALL Java_com_echovault_game_GameView_nativeInit(JNIEnv*, jclass) { reset_game(); scene=TITLE; }
 extern "C" JNIEXPORT void JNICALL Java_com_echovault_game_GameView_nativeSuspend(JNIEnv*, jclass) {if(scene==PLAY) scene=PAUSED; memset(keys,0,sizeof(keys));}
-extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeMenuState(JNIEnv*, jclass) {return scene==PAUSED?1:scene==HELP?2:0;}
+extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeMenuState(JNIEnv*, jclass) {return scene==PAUSED?1:scene==HELP?2:scene==TITLE?3:scene==SETTINGS?4:0;}
 extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeTick(JNIEnv*, jclass, jint held, jint pulse) {
-    static const int codes[]={VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_SPACE,'F',VK_SHIFT,'E','P',VK_RETURN,'M','H'};
-    for(int i=0;i<12;i++) {bool down=(held & (1<<i))!=0; pressed[codes[i]]=(down&&!keys[codes[i]]) || (pulse & (1<<i));keys[codes[i]]=down;}
+    static const int codes[]={VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_SPACE,'F',VK_SHIFT,'E','P',VK_RETURN,'M','H','C'};
+    for(int i=0;i<13;i++) {bool down=(held & (1<<i))!=0; pressed[codes[i]]=(down&&!keys[codes[i]]) || (pulse & (1<<i));keys[codes[i]]=down;}
     ++frame_number;
     if(pressed['M']) muted=!muted;
     if(scene==TITLE && pressed[VK_RETURN]) {reset_game();scene=PLAY;}
+    else if(scene==TITLE && pressed['C']) {settings_return=TITLE;settings_choice=0;scene=SETTINGS;}
     else if(scene==DEAD && pressed[VK_RETURN]) {retry_level();scene=PLAY;}
     else if(scene==WIN && pressed[VK_RETURN]) {reset_game();scene=PLAY;}
     else if(scene==STAGE_CLEAR) {
@@ -412,10 +452,14 @@ extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeTick(JN
         if(pressed[VK_DOWN]) upgrade=(upgrade+1)%3;
         if(pressed[VK_RETURN]) {if(upgrade==0) damage_upgrade++;else if(upgrade==1) speed_upgrade++;else dash_upgrade++;level++;health=std::min(5,health+1);begin_level();scene=PLAY;}
     } else if(scene==PAUSED) {
-        if(pressed[VK_UP]||pressed[VK_DOWN]) pause_choice=1-pause_choice;
+        if(pressed[VK_UP]) pause_choice=(pause_choice+2)%3;
+        if(pressed[VK_DOWN]) pause_choice=(pause_choice+1)%3;
         if(pressed['H']) {help_page=0;scene=HELP;}
-        else if(pressed[VK_RETURN]) {if(pause_choice==0) scene=PLAY;else {help_page=0;scene=HELP;}}
+        else if(pressed['C']) {settings_return=PAUSED;settings_choice=0;scene=SETTINGS;}
+        else if(pressed[VK_RETURN]) {if(pause_choice==0) scene=PLAY;else if(pause_choice==1) {help_page=0;scene=HELP;}else {settings_return=PAUSED;settings_choice=0;scene=SETTINGS;}}
         else if(pressed['P']) scene=PLAY;
+    } else if(scene==SETTINGS) {
+        update_settings();
     } else if(scene==HELP) {
         if(pressed[VK_LEFT]) help_page=(help_page+2)%3; else if(pressed[VK_RIGHT]) help_page=(help_page+1)%3;
         if(pressed[VK_RETURN]||pressed['H']||pressed['P']) scene=PAUSED;
