@@ -95,7 +95,8 @@ static bool boss_defeated=false;
 static int weapon=0, upgrade=0, damage_upgrade=0, speed_upgrade=0, dash_upgrade=0, sword_timer=0, sword_cooldown=0, boss_max_health=24;
 static int level=0, goal=3, level_start_score=0, level_start_elapsed=0, level_start_health=5;
 static bool is_boss_stage() {return (level+1)%6==0;}
-enum Scene { TITLE, PLAY, DEAD, STAGE_CLEAR, WIN, PAUSED }; static Scene scene = TITLE;
+enum Scene { TITLE, PLAY, DEAD, STAGE_CLEAR, WIN, PAUSED, HELP }; static Scene scene = TITLE;
+static int pause_choice=0, help_page=0;
 static bool blocked(float x,float y,float r) {
     if(x-r<16 || y-r<16 || x+r>W-16 || y+r>H-16) return true;
     int minx=std::max(1,int((x-r-7)/TILE)), maxx=std::min(TW-2,int((x+r+7)/TILE));
@@ -199,7 +200,7 @@ static void swing_sword() {
 }
 static void update_game() {
     ++elapsed;
-    if (pressed[VK_ESCAPE] || pressed['P']) { scene=PAUSED; return; }
+    if (pressed[VK_ESCAPE] || pressed['P']) { pause_choice=0; scene=PAUSED; return; }
     if(pressed['E']) {weapon=1-weapon;sound(3);}
     if(sword_timer>0) sword_timer--; if(sword_cooldown>0) sword_cooldown--;
     if(pressed['F']) swing_sword();
@@ -340,6 +341,45 @@ static void draw() {
         centered(152,"PAUSE AND START ON SCREEN",color(156,184,191));
         centered(170,"BEWARE THE FLOOR TRAPS",color(255,167,140));
         if((frame_number/30)%2==0) centered(192,"TAP START TO BEGIN",color(255,226,153));
+    } else if(scene==PAUSED) {
+        rect(45,65,230,110,color(10,18,27));box(45,65,230,110,color(115,160,163));
+        centered(78,"PAUSED",color(133,241,213),2);
+        centered(112,pause_choice==0?"> RESUME":"  RESUME",color(255,219,146));
+        centered(133,pause_choice==1?"> GAME GUIDE":"  GAME GUIDE",color(255,219,146));
+        centered(157,"UP DOWN ENTER  OR  H GUIDE",color(156,184,191));
+    } else if(scene==HELP) {
+        rect(10,8,300,224,color(10,18,27));box(10,8,300,224,color(115,160,163));
+        centered(19,help_page==0?"GAME GUIDE 1/3":help_page==1?"GAME GUIDE 2/3":"GAME GUIDE 3/3",color(133,241,213),2);
+        if(help_page==0) {
+            text(20,45,"MOVE: WASD / ARROWS / JOYSTICK",color(206,218,208));
+            text(20,61,"SPACE / FIRE: SHOOT IN FACING DIRECTION",color(206,218,208));
+            text(20,77,"E / GUN: SWITCH PULSE AND SPREAD",color(206,218,208));
+            text(20,93,"F / SWORD: HIT AND BLOCK BULLETS",color(206,218,208));
+            text(20,109,"SHIFT / DASH: QUICK MOVE AND DODGE",color(206,218,208));
+            text(20,125,"P ESC / PAUSE: PAUSE OR RESUME",color(206,218,208));
+            text(20,141,"M / SOUND: TOGGLE SOUND",color(206,218,208));
+            text(20,157,"ENTER / START: CONFIRM OR RETRY",color(206,218,208));
+        } else if(help_page==1) {
+            text(20,45,"COLLECT ALL CORES TO OPEN THE EXIT",color(206,218,208));
+            text(20,61,"EVERY SIXTH STAGE HAS A GUARDIAN",color(206,218,208));
+            text(20,77,"GREEN CROSS PICKUPS RESTORE HEALTH",color(206,218,208));
+            text(20,93,"RED FLOOR TRAPS TURN ON AND OFF",color(206,218,208));
+            text(20,109,"PURPLE SHOOTS  ORANGE IS ARMORED",color(206,218,208));
+            text(20,125,"YELLOW IS FAST  GREEN FIRES 3 SHOTS",color(206,218,208));
+            text(20,141,"BLUE CHARGES  BOSSES ENRAGE AT HALF HP",color(206,218,208));
+            text(20,157,"AFTER EACH STAGE CHOOSE AN UPGRADE",color(206,218,208));
+        } else {
+            text(20,45,"FIREPOWER: INCREASE ATTACK DAMAGE",color(206,218,208));
+            text(20,61,"MOVE SPEED: WALK FASTER",color(206,218,208));
+            text(20,77,"FASTER DASH: SHORTER DASH RECHARGE",color(206,218,208));
+            text(20,93,"UP DOWN: SELECT THE NEXT UPGRADE",color(206,218,208));
+            text(20,109,"PULSE: FAST SINGLE SHOTS",color(206,218,208));
+            text(20,125,"SPREAD: THREE SHORT RANGE SHOTS",color(206,218,208));
+            text(20,141,"CLEAR A STAGE TO REGAIN ONE HP",color(206,218,208));
+            text(20,157,"ON DEFEAT START RETRIES THE STAGE",color(206,218,208));
+        }
+        centered(182,"LEFT RIGHT: CHANGE PAGE",color(156,184,191));
+        box(75,200,170,20,color(115,160,163)); centered(206,"ENTER / H: BACK TO PAUSE",color(255,219,146));
     } else if(scene==STAGE_CLEAR) {
         rect(25,50,270,142,color(10,18,27)); box(25,50,270,142,color(115,160,163));
         centered(62,"SECTOR CLEAR",color(133,241,213),2);
@@ -348,7 +388,7 @@ static void draw() {
         text(48,121,upgrade==1?"> MOVE SPEED":"  MOVE SPEED",upgrade==1?color(255,226,153):color(156,184,191));
         text(48,137,upgrade==2?"> FASTER DASH":"  FASTER DASH",upgrade==2?color(255,226,153):color(156,184,191));
         centered(165,"TOUCH UP DOWN AND START",color(206,218,208));
-    } else if(scene==DEAD || scene==WIN || scene==PAUSED) {
+    } else if(scene==DEAD || scene==WIN) {
         rect(45,78,230,92,color(10,18,27)); box(45,78,230,92,color(115,160,163));
         centered(91,scene==DEAD?"SIGNAL LOST":scene==WIN?"ESCAPE COMPLETE":scene==STAGE_CLEAR?"SECTOR CLEAR":"PAUSED",scene==DEAD?color(255,130,129):color(133,241,213),2);
         char info[40]; sprintf_s(info,"SCORE %d  TIME %d SEC",score,elapsed/60); centered(119,info,color(208,215,201));
@@ -358,9 +398,10 @@ static void draw() {
 
 extern "C" JNIEXPORT void JNICALL Java_com_echovault_game_GameView_nativeInit(JNIEnv*, jclass) { reset_game(); scene=TITLE; }
 extern "C" JNIEXPORT void JNICALL Java_com_echovault_game_GameView_nativeSuspend(JNIEnv*, jclass) {if(scene==PLAY) scene=PAUSED; memset(keys,0,sizeof(keys));}
+extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeMenuState(JNIEnv*, jclass) {return scene==PAUSED?1:scene==HELP?2:0;}
 extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeTick(JNIEnv*, jclass, jint held, jint pulse) {
-    static const int codes[]={VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_SPACE,'F',VK_SHIFT,'E','P',VK_RETURN,'M'};
-    for(int i=0;i<11;i++) {bool down=(held & (1<<i))!=0; pressed[codes[i]]=(down&&!keys[codes[i]]) || (pulse & (1<<i));keys[codes[i]]=down;}
+    static const int codes[]={VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_SPACE,'F',VK_SHIFT,'E','P',VK_RETURN,'M','H'};
+    for(int i=0;i<12;i++) {bool down=(held & (1<<i))!=0; pressed[codes[i]]=(down&&!keys[codes[i]]) || (pulse & (1<<i));keys[codes[i]]=down;}
     ++frame_number;
     if(pressed['M']) muted=!muted;
     if(scene==TITLE && pressed[VK_RETURN]) {reset_game();scene=PLAY;}
@@ -370,7 +411,15 @@ extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeTick(JN
         if(pressed[VK_UP]) upgrade=(upgrade+2)%3;
         if(pressed[VK_DOWN]) upgrade=(upgrade+1)%3;
         if(pressed[VK_RETURN]) {if(upgrade==0) damage_upgrade++;else if(upgrade==1) speed_upgrade++;else dash_upgrade++;level++;health=std::min(5,health+1);begin_level();scene=PLAY;}
-    } else if(scene==PAUSED && pressed['P']) scene=PLAY;
+    } else if(scene==PAUSED) {
+        if(pressed[VK_UP]||pressed[VK_DOWN]) pause_choice=1-pause_choice;
+        if(pressed['H']) {help_page=0;scene=HELP;}
+        else if(pressed[VK_RETURN]) {if(pause_choice==0) scene=PLAY;else {help_page=0;scene=HELP;}}
+        else if(pressed['P']) scene=PLAY;
+    } else if(scene==HELP) {
+        if(pressed[VK_LEFT]) help_page=(help_page+2)%3; else if(pressed[VK_RIGHT]) help_page=(help_page+1)%3;
+        if(pressed[VK_RETURN]||pressed['H']||pressed['P']) scene=PAUSED;
+    }
     else if(scene==PLAY) update_game();
     memset(pressed,0,sizeof(pressed)); int s=pending_sound;pending_sound=0;return s;
 }

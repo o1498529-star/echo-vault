@@ -17,12 +17,13 @@ public final class GameView extends View {
     private static native void nativeSuspend();
     private static native int nativeTick(int held, int pulse);
     private static native void nativeDraw(int[] pixels);
+    private static native int nativeMenuState();
     private final Bitmap image = Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888);
     private final int[] pixels = new int[320*240];
     private final Paint paint = new Paint();
-    private final String[] labels={"","","","","FIRE","SWORD","DASH","GUN","PAUSE","START","SOUND"};
-    private final float[] cx={0,0,0,0,.91f,.80f,.91f,.80f,.95f,.82f,.69f};
-    private final float[] cy={0,0,0,0,.63f,.76f,.88f,.53f,.12f,.12f,.12f};
+    private final String[] labels={"","","","","FIRE","SWORD","DASH","GUN","PAUSE","START","SOUND","HELP"};
+    private final float[] cx={0,0,0,0,.91f,.80f,.91f,.80f,.95f,.82f,.69f,.55f};
+    private final float[] cy={0,0,0,0,.63f,.76f,.88f,.53f,.12f,.12f,.12f,.12f};
     private int held=0, pending=0;
     private int joystickPointer=-1;
     private float stickX=0, stickY=0;
@@ -59,15 +60,21 @@ public final class GameView extends View {
         paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2);paint.setColor(0xbb93d8dd);canvas.drawCircle(joyX,joyY,joyR,paint);paint.setStyle(Paint.Style.FILL);
         paint.setColor(joystickPointer<0?0xaa93d8dd:0xdd65dbd3);canvas.drawCircle(joyX+stickX*joyR*.65f,joyY+stickY*joyR*.65f,joyR*.37f,paint);
         for(int i=4;i<labels.length;i++) {
+            if(i==11 && nativeMenuState()==0) continue;
             float x=cx[i]*getWidth(), y=cy[i]*getHeight();
             paint.setColor((held&(1<<i))!=0?0xbb65dbd3:0x99142130);canvas.drawCircle(x,y,radius,paint);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2);paint.setColor(0xbb93d8dd);canvas.drawCircle(x,y,radius,paint);paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.WHITE); canvas.drawText(labels[i],x,y-(paint.ascent()+paint.descent())/2,paint);
+            paint.setColor(Color.WHITE); canvas.drawText(i==11 && nativeMenuState()==2?"BACK":labels[i],x,y-(paint.ascent()+paint.descent())/2,paint);
         }
         postInvalidateOnAnimation();
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
         int next=0, action=event.getActionMasked(), changed=event.getActionIndex(); float radius=Math.min(getHeight()*.085f,getWidth()*.043f);
+        if((action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_POINTER_DOWN) && nativeMenuState()==2) {
+            float scale=Math.min(getWidth()/320f,getHeight()/240f);
+            float gx=(event.getX(changed)-(getWidth()-320*scale)/2)/scale,gy=(event.getY(changed)-(getHeight()-240*scale)/2)/scale;
+            if(gx>=75 && gx<245 && gy>=200 && gy<220) {pending|=1<<11;return true;}
+        }
         if((action==MotionEvent.ACTION_DOWN || action==MotionEvent.ACTION_POINTER_DOWN) && joystickPointer<0 && event.getX(changed)<getWidth()*.27f && event.getY(changed)>getHeight()*.38f) joystickPointer=event.getPointerId(changed);
         if(action==MotionEvent.ACTION_CANCEL || ((action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_POINTER_UP) && event.getPointerId(changed)==joystickPointer)) {joystickPointer=-1;stickX=stickY=0;}
         if(action!=MotionEvent.ACTION_CANCEL) for(int p=0;p<event.getPointerCount();p++) {
@@ -79,7 +86,7 @@ public final class GameView extends View {
                 if(dy<-.3f) next|=1; if(dy>.3f) next|=2; if(dx<-.3f) next|=4; if(dx>.3f) next|=8;
             } else {
                 int nearest=-1; float best=radius*radius;
-                for(int i=4;i<labels.length;i++) {float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight(),dist=dx*dx+dy*dy;if(dist<best){best=dist;nearest=i;}}
+                for(int i=4;i<labels.length;i++) {if(i==11 && nativeMenuState()==0) continue;float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight(),dist=dx*dx+dy*dy;if(dist<best){best=dist;nearest=i;}}
                 if(nearest>=0) next|=1<<nearest;
             }
         }
