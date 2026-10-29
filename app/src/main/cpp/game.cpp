@@ -6,10 +6,14 @@
 #include <cstring>
 constexpr int VK_SHIFT=16, VK_ESCAPE=27, VK_SPACE=32, VK_LEFT=37, VK_UP=38, VK_RIGHT=39, VK_DOWN=40, VK_RETURN=13;
 template <size_t N, typename... A> int sprintf_s(char (&b)[N], const char* fmt, A... args) { return snprintf(b,N,fmt,args...); }
-// Native Win32 + software pixels. No external assets or libraries.
+// Pixel art is emitted as colored rectangles and rasterized by OpenGL.
 constexpr int W = 320, H = 240, TW = 20, TH = 15, TILE = 16;
 constexpr float STEP = 1.0f / 60.0f;
-static uint32_t framebuffer[W * H];
+struct GpuVertex { float x,y; uint8_t r,g,b,a; };
+static_assert(sizeof(GpuVertex)==12,"Unexpected GPU vertex layout");
+constexpr int MAX_VERTICES=16000*6;
+static GpuVertex vertices[MAX_VERTICES];
+static int vertex_count=0;
 static bool keys[256], pressed[256], running = true;
 static uint32_t random_state = 0x17ac091u;
 static int frame_number = 0, shake = 0;
@@ -17,11 +21,16 @@ static int pending_sound=0; static bool muted=false;
 static void sound(int id) { if(!muted) pending_sound=id+1; }
 static unsigned rnd() { random_state ^= random_state << 13; random_state ^= random_state >> 17; random_state ^= random_state << 5; return random_state; }
 static uint32_t color(int r, int g, int b) { return (uint32_t(r) << 16) | (uint32_t(g) << 8) | uint32_t(b); }
-static void pixel(int x, int y, uint32_t c) { if ((unsigned)x < W && (unsigned)y < H) framebuffer[y * W + x] = c; }
 static void rect(int x, int y, int w, int h, uint32_t c) {
-    int x0 = std::max(0, x), y0 = std::max(0, y), x1 = std::min(W, x + w), y1 = std::min(H, y + h);
-    for (int j = y0; j < y1; ++j) for (int i = x0; i < x1; ++i) framebuffer[j * W + i] = c;
+    int x0=std::max(0,x),y0=std::max(0,y),x1=std::min(W,x+w),y1=std::min(H,y+h);
+    if(x0>=x1 || y0>=y1 || vertex_count+6>MAX_VERTICES) return;
+    float left=float(x0)*2/W-1, right=float(x1)*2/W-1, top=1-float(y0)*2/H, bottom=1-float(y1)*2/H;
+    uint8_t r=uint8_t(c>>16),g=uint8_t(c>>8),b=uint8_t(c);
+    GpuVertex a{left,top,r,g,b,255}, q{right,top,r,g,b,255}, d{left,bottom,r,g,b,255}, e{right,bottom,r,g,b,255};
+    vertices[vertex_count++]=a;vertices[vertex_count++]=d;vertices[vertex_count++]=q;
+    vertices[vertex_count++]=q;vertices[vertex_count++]=d;vertices[vertex_count++]=e;
 }
+static void pixel(int x,int y,uint32_t c) {rect(x,y,1,1,c);}
 static void box(int x, int y, int w, int h, uint32_t c) { rect(x,y,w,1,c); rect(x,y+h-1,w,1,c); rect(x,y,1,h,c); rect(x+w-1,y,1,h,c); }
 
 // 5x7 bitmap alphabet, stored in ROM-like static data.
@@ -356,7 +365,7 @@ static void draw_world() {
     rect(230,18,85,10,color(10,17,25)); text(232,20,weapon?"SPREAD":"PULSE",color(243,206,153));
 }
 static void draw() {
-    draw_world();
+    vertex_count=0; draw_world();
     if(scene==TITLE) {
         rect(23,32,274,175,color(11,20,30)); box(23,32,274,175,color(95,155,166));
         centered(48,"ECHO VAULT",color(130,235,222),2);
@@ -467,7 +476,8 @@ extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeTick(JN
     else if(scene==PLAY) update_game();
     memset(pressed,0,sizeof(pressed)); int s=pending_sound;pending_sound=0;return s;
 }
-extern "C" JNIEXPORT void JNICALL Java_com_echovault_game_GameView_nativeDraw(JNIEnv* env, jclass, jintArray pixels) {
-    draw(); for(auto& p:framebuffer) p|=0xff000000u;
-    env->SetIntArrayRegion(pixels,0,W*H,reinterpret_cast<const jint*>(framebuffer));
+extern "C" JNIEXPORT jint JNICALL Java_com_echovault_game_GameView_nativeDraw(JNIEnv* env, jclass, jbyteArray bytes) {
+    draw(); int count=vertex_count; int size=count*int(sizeof(GpuVertex));
+    if(env->GetArrayLength(bytes)<size) return 0;
+    env->SetByteArrayRegion(bytes,0,size,reinterpret_cast<const jbyte*>(vertices)); return count;
 }

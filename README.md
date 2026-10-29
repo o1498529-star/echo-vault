@@ -6,7 +6,7 @@ Pause and tap HELP to open the game guide. Move the joystick left or right to ch
 
 Tap SET on the title or pause screen to choose difficulty, player color, starting gun and sound. Move the joystick up or down to select a row, and left or right to change it. Tap BACK to leave settings. Starting gun applies to a new game. Settings are kept until the app is closed. Four difficulty levels change player speed, enemy speed, spawn rate and the maximum number of active enemies. Six bosses use three attack patterns.
 
-The original C++ game simulation and software pixel renderer are compiled using the Android NDK. Android displays the framebuffer and provides touch controls and simple sound effects. Progress is not saved after closing the app.
+The C++ game simulation produces a batch of colored rectangles. OpenGL ES 2.0 draws the pixel art on the graphics renderer, while Android overlays touch controls and provides simple sound effects. The CPU still runs game logic and prepares geometry. A graphics driver may use software rendering. Progress is not saved after closing the app.
 
 GitHub Actions builds a debug APK; download the Echo-Vault-Android-APK artifact from the successful run and extract the APK. Debug APKs are not Play Store release builds.
 

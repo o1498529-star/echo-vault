@@ -1,11 +1,9 @@
 package com.echovault.game;
 
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.RectF;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.view.MotionEvent;
@@ -16,10 +14,10 @@ public final class GameView extends View {
     private static native void nativeInit();
     private static native void nativeSuspend();
     private static native int nativeTick(int held, int pulse);
-    private static native void nativeDraw(int[] pixels);
+    private static native int nativeDraw(byte[] vertices);
     private static native int nativeMenuState();
-    private final Bitmap image = Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888);
-    private final int[] pixels = new int[320*240];
+    private final GpuSurface gpu;
+    private final byte[] vertices = new byte[GpuSurface.MAX_BYTES];
     private final Paint paint = new Paint();
     private final String[] labels={"","","","","FIRE","SWORD","DASH","GUN","PAUSE","START","SOUND","HELP","SET"};
     private final float[] cx={0,0,0,0,.91f,.80f,.91f,.80f,.95f,.82f,.69f,.55f,.42f};
@@ -31,8 +29,8 @@ public final class GameView extends View {
     private double accumulator=0;
     private ToneGenerator tones;
 
-    GameView(Context context) {
-        super(context); setFocusable(true); nativeInit();
+    GameView(Context context,GpuSurface surface) {
+        super(context);gpu=surface; setFocusable(true); nativeInit();
         try { tones = new ToneGenerator(AudioManager.STREAM_MUSIC, 45); } catch (RuntimeException ignored) { tones=null; }
     }
     void pauseGame() { pending |= 1<<8; invalidate(); }
@@ -48,11 +46,7 @@ public final class GameView extends View {
             if(s!=0 && tones!=null) tones.startTone(s==1?ToneGenerator.TONE_PROP_BEEP:s==3?ToneGenerator.TONE_PROP_NACK:ToneGenerator.TONE_PROP_ACK,55);
             accumulator-=1.0/60.0;
         }
-        nativeDraw(pixels); image.setPixels(pixels,0,320,0,0,320,240);
-        canvas.drawColor(Color.rgb(7,12,20));
-        float scale=Math.min(getWidth()/320f,getHeight()/240f), w=320*scale,h=240*scale;
-        paint.setFilterBitmap(false);paint.setAlpha(255);
-        canvas.drawBitmap(image,null,new RectF((getWidth()-w)/2,(getHeight()-h)/2,(getWidth()+w)/2,(getHeight()+h)/2),paint);
+        int count=nativeDraw(vertices);gpu.submit(vertices,count);
         float radius=Math.min(getHeight()*.071f,getWidth()*.036f);
         paint.setTextAlign(Paint.Align.CENTER);paint.setTextSize(Math.max(12,radius*.43f));paint.setFakeBoldText(true);
         float joyX=getWidth()*.13f,joyY=getHeight()*.72f,joyR=getHeight()*.18f;
