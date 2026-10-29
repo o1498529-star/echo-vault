@@ -101,8 +101,8 @@ static bool blocked(float x,float y,float r) {
     int minx=std::max(1,int((x-r-7)/TILE)), maxx=std::min(TW-2,int((x+r+7)/TILE));
     int miny=std::max(1,int((y-r-7)/TILE)), maxy=std::min(TH-2,int((y+r+7)/TILE));
     for(int ty=miny;ty<=maxy;ty++) for(int tx=minx;tx<=maxx;tx++) if(world[ty][tx]=='#') {
-        float dx=x-(tx*TILE+TILE/2),dy=y-(ty*TILE+TILE/2),radius=r+7.0f;
-        if(dx*dx+dy*dy<radius*radius) return true;
+        float dx=x-(tx*TILE+TILE/2),dy=y-(ty*TILE+TILE/2),half=r+7.0f;
+        if(fabsf(dx)<half && fabsf(dy)<half) return true;
     }
     return false;
 }
