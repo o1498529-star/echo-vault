@@ -77,7 +77,11 @@ public final class GameView extends View {
                 float joyR=getHeight()*.18f,dx=(x-getWidth()*.13f)/joyR,dy=(y-getHeight()*.72f)/joyR;
                 float mag=(float)Math.sqrt(dx*dx+dy*dy); if(mag>1) {dx/=mag;dy/=mag;} stickX=dx;stickY=dy;
                 if(dy<-.3f) next|=1; if(dy>.3f) next|=2; if(dx<-.3f) next|=4; if(dx>.3f) next|=8;
-            } else for(int i=4;i<labels.length;i++) {float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight();if(dx*dx+dy*dy<=radius*radius) next|=1<<i;}
+            } else {
+                int nearest=-1; float best=radius*radius;
+                for(int i=4;i<labels.length;i++) {float dx=x-cx[i]*getWidth(),dy=y-cy[i]*getHeight(),dist=dx*dx+dy*dy;if(dist<best){best=dist;nearest=i;}}
+                if(nearest>=0) next|=1<<nearest;
+            }
         }
         pending |= next & ~held;held=next;return true;
     }
