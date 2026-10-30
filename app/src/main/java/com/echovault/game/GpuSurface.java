@@ -9,7 +9,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 final class GpuSurface extends GLSurfaceView implements GLSurfaceView.Renderer {
-    static final int MAX_BYTES=16000*6*12;
+    static final int MAX_BYTES=6144*6*12;   // MAX_RECTS * 6 vertices * 12 bytes; GameView verifies it matches game_core.h
     private final Object lock=new Object();
     private final ByteBuffer frame=ByteBuffer.allocateDirect(MAX_BYTES).order(ByteOrder.nativeOrder());
     private int program,position,vertexColor,width,height,vertexCount;
